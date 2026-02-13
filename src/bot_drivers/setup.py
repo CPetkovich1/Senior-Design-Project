@@ -24,6 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'driver = bot_drivers.gpio:main'
         ],
     },
 )
