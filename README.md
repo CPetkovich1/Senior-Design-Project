@@ -17,3 +17,5 @@ pkill -9 _ros2_daemon
 ros2 daemon start
 
 in order to reset daemon on the control station in order to see topics and nodes for wireless communication.
+
+Run colcon build in the base workspace directory in both control station and robot after changing code
