@@ -4,9 +4,9 @@ from std_msgs.msg import String
 from gpiozero import Servo
 import sys
 
-class GpioSubscriber(Node):
+class GripperSubscriber(Node):
     def __init__(self):
-        super().__init__('gpio_subscriber')
+        super().__init__('gripper_subscriber')
         
         # Subscribe to the 'robot_cmd' topic
         self.subscription = self.create_subscription(
