@@ -24,7 +24,7 @@ class GpioSubscriber(Node):
         try:
             self.gripper_servo = Servo(
                 servo_pin, 
-                min_pulse_width=1/1000, 
+                min_pulse_width=.5/1000, 
                 max_pulse_width=2.5/1000
             )
             self.get_logger().info(f"Servo initialized on GPIO {servo_pin}")
@@ -38,11 +38,11 @@ class GpioSubscriber(Node):
 
         if command == 'open':
             self.get_logger().info("Executing: OPEN")
-            self.gripper_servo.min()  # Moves to 0° and stays energized
+            self.gripper_servo.max()  # Moves to 0° and stays energized
         
         elif command == 'close':
             self.get_logger().info("Executing: CLOSE & LOCK")
-            self.gripper_servo.max()  # Moves to 180° and stays energized (locked)
+            self.gripper_servo.min()  # Moves to 180° and stays energized (locked)
         
         # Any other commands (like 'stop' when keys are released) are ignored,
         # ensuring the servo holds its last position with full torque.
