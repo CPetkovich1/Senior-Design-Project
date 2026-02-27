@@ -4,9 +4,9 @@ from std_msgs.msg import String
 from gpiozero import Servo
 import sys
 
-class GripperSubscriber(Node):
+class GpioSubscriber(Node):
     def __init__(self):
-        super().__init__('gripper_subscriber')
+        super().__init__('gpio_subscriber')
         
         # Subscribe to the 'robot_cmd' topic
         self.subscription = self.create_subscription(
@@ -15,7 +15,7 @@ class GripperSubscriber(Node):
             self.listener_callback, 
             10)
         
-        # Declare the GPIO pin parameter
+        # Declare the GPIO pin (Default 18)
         self.declare_parameter('pin_servo', 18)
         servo_pin = self.get_parameter('pin_servo').value
         
@@ -26,34 +26,37 @@ class GripperSubscriber(Node):
         except Exception as e:
             self.get_logger().error(f"Failed to initialize Servo: {e}")
 
-        self.get_logger().info("Ready. Use 'o' to Open and 'x' to Close.")
+        self.get_logger().info("Ready. 'o'=Open, 'x'=Close. Release keys to Stop/Relax.")
 
     def listener_callback(self, msg):
-        # Convert incoming message to lowercase to avoid matching errors
         command = msg.data.lower()
 
         if command == 'open':
-            self.get_logger().info("Executing: OPEN")
-            self.gripper_servo.min()  # Moves to -1 position (0 degrees)
+            self.get_logger().info("Status: OPENING")
+            self.gripper_servo.min()  # Moves to -1 position
         
         elif command == 'close':
-            self.get_logger().info("Executing: CLOSE")
-            self.gripper_servo.max()  # Moves to +1 position (180 degrees)
+            self.get_logger().info("Status: CLOSING")
+            self.gripper_servo.max()  # Moves to +1 position
+            
+        elif command == 'stop':
+            # This 'detaches' the PWM signal. 
+            # The servo stays where it is but stops drawing 'holding' power.
+            self.gripper_servo.detach()
 
     def destroy_node(self):
-        # Even without 'stop', we detach on exit for hardware safety
-        self.get_logger().info("Node destroying: Releasing servo.")
+        # Final safety cleanup
         self.gripper_servo.detach()
         super().destroy_node()
 
 def main(args=None):
     rclpy.init(args=args)
-    node = GripperSubscriber()
+    node = GpioSubscriber()
     
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
-        pass
+        node.get_logger().info("Shutting down node...")
     finally:
         node.destroy_node()
         rclpy.shutdown()
