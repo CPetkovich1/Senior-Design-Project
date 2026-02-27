@@ -3,6 +3,12 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 from std_msgs.msg import String # To publish logic commands
 from cv_bridge import CvBridge
+import sys
+import os
+# This tells the script to look into your virtual env site-packages
+venv_path = os.path.expanduser('~/ultralytics-env/lib/python3.12/site-packages')
+if venv_path not in sys.path:
+    sys.path.append(venv_path)
 from ultralytics import YOLO
 import cv2
 
