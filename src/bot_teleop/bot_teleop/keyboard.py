@@ -35,7 +35,7 @@ class KeyboardPublisher(Node):
     def poll_keyboard(self):
         key = self.get_key()
         if key:
-            if key in ['w', 'a', 's', 'd']:
+            if key in ['w', 'a', 's', 'd', 'o', 'x']:
                 self.current_key = key
             elif key == '\x1b':  # ESC key
                 self.get_logger().info("Shutting down...")
@@ -48,7 +48,7 @@ class KeyboardPublisher(Node):
 
     def timer_callback(self):
         msg = String()
-        mapping = {'w': 'forward', 's': 'backward', 'a': 'left', 'd': 'right'}
+        mapping = {'w': 'forward', 's': 'backward', 'a': 'left', 'd': 'right', 'o': 'open', 'x': 'close'}
         msg.data = mapping.get(self.current_key, 'stop')
         self.publisher_.publish(msg)
 
