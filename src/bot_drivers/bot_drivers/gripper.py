@@ -24,7 +24,7 @@ class GpioSubscriber(Node):
         try:
             self.gripper_servo = Servo(
                 servo_pin, 
-                min_pulse_width=0.5/1000, 
+                min_pulse_width=1/1000, 
                 max_pulse_width=2.5/1000
             )
             self.get_logger().info(f"Servo initialized on GPIO {servo_pin}")
