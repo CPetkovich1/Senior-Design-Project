@@ -48,7 +48,7 @@ class GripperSubscriber(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = GpioSubscriber()
+    node = GripperSubscriber()
     
     try:
         rclpy.spin(node)
