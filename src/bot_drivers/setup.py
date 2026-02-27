@@ -24,7 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'driver = bot_drivers.gpio:main'
+            'driver = bot_drivers.gpio:main',
             'gripper = bot_drivers.gripper:main'
         ],
     },
