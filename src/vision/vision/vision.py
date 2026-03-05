@@ -24,7 +24,7 @@ class Vision(Node):
         self.logic_pub = self.create_publisher(String, 'robot_commands', 10)
         
         # Load YOLO11 model (n = nano version for speed)
-        self.model = YOLO('yolo11n.pt') 
+        self.model = YOLO('best.pt') 
         self.bridge = CvBridge()
         self.get_logger().info('YOLO11 Detector Node has started.')
 
