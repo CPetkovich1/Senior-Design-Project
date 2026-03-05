@@ -1,69 +1,86 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
-from std_msgs.msg import String # To publish logic commands
+from std_msgs.msg import String
 from cv_bridge import CvBridge
 import sys
 import os
-# This tells the script to look into your virtual env site-packages
+
+# Your virtual env path
 venv_path = os.path.expanduser('~/ultralytics-env/lib/python3.12/site-packages')
 if venv_path not in sys.path:
     sys.path.append(venv_path)
+
 from ultralytics import YOLO
 import cv2
 
-class Vision(Node):
+class CubeDetector(Node): # Renamed for clarity
     def __init__(self):
-        super().__init__('vision')
+        super().__init__('cube_detector')
         
-        # Subscribe to the Pi's camera feed
         self.subscription = self.create_subscription(
             Image, 'raw_image', self.image_callback, 10)
         
-        # Publisher for robot control logic (e.g., "STOP" or "GO")
         self.logic_pub = self.create_publisher(String, 'robot_commands', 10)
         
-        # Load YOLO11 model (n = nano version for speed)
+        # 1. Load your custom trained model
+        # Ensure best.pt is in the same directory or provide the full path
         self.model = YOLO('best.pt') 
         self.bridge = CvBridge()
-        self.get_logger().info('YOLO11 Detector Node has started.')
+        
+        # 2. Threshold for "Close Enough" (0.0 to 1.0)
+        # If the cube takes up more than 40% of the frame width, hand over control
+        self.close_threshold = 0.4 
+        
+        self.get_logger().info('Cube Detector Node started. Looking for "cube"... ')
 
     def image_callback(self, msg):
-        # 1. Convert ROS image back to OpenCV
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+        h, w, _ = frame.shape # Get frame dimensions
 
-        # 2. Run YOLO11 Inference
-        results = self.model(frame, verbose=False, conf=0.5)
+        # Run Inference
+        results = self.model(frame, verbose=False, conf=0.6) # Increased confidence for reliability
 
-        # 3. Process Detections & Logic Control
         command = String()
-        found_person = False
+        cube_detected = False
+        close_enough = False
 
         for result in results:
             for box in result.boxes:
                 class_id = int(box.cls[0])
                 label = self.model.names[class_id]
                 
-                # Logic Control Example: Stop if a 'person' is detected
-                if label == 'person':
-                    found_person = True
+                # 3. Target the 'cube' label from your training
+                if label.lower() == 'cube':
+                    cube_detected = True
+                    
+                    # 4. Calculate Normalized Width
+                    # box.xywhn[0] gives [x_center, y_center, width, height] in 0-1 range
+                    box_width = box.xywhn[0][2] 
+                    
+                    if box_width > self.close_threshold:
+                        close_enough = True
 
-        if found_person:
-            command.data = "STOP: Person detected!"
-            self.get_logger().warn("Logic Triggered: STOP")
+        # 5. Logic Branching
+        if close_enough:
+            command.data = "HANDOVER: Cube reached. Operator control required."
+            self.get_logger().warn("TARGET REACHED: Switching to Operator")
+        elif cube_detected:
+            command.data = "APPROACH: Cube found, moving closer."
+            self.get_logger().info("Cube sighted - Navigating...")
         else:
-            command.data = "PROCEED: Path clear"
-        
+            command.data = "SEARCH: Scanning for cube..."
+
         self.logic_pub.publish(command)
 
-        # 4. Optional: Display the annotated frame
+        # 6. Debug view
         annotated_frame = results[0].plot()
-        cv2.imshow("YOLO11 Laptop Feed", annotated_frame)
+        cv2.imshow("Robot Vision Feed", annotated_frame)
         cv2.waitKey(1)
 
 def main(args=None):
     rclpy.init(args=args)
-    node = Vision()
+    node = CubeDetector()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
