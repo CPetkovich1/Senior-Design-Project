@@ -1,93 +1,109 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
-from geometry_msgs.msg import Twist
+from std_msgs.msg import String
 from cv_bridge import CvBridge
 import cv2
 import numpy as np
 import time
 
-class SnakeSearchNode(Node):
+class SnakeSearchBrain(Node):
     def __init__(self):
-        super().__init__('snake_search_node')
+        super().__init__('snake_search_brain')
         self.bridge = CvBridge()
-        self.pub = self.create_publisher(Twist, '/cmd_vel', 10)
-        self.sub = self.create_subscription(Image, '/camera/image_raw', self.image_callback, 10)
+        
+        # 1. Pub/Sub: We talk to your GPIO node via 'robot_cmd'
+        self.cmd_pub = self.create_publisher(String, 'robot_cmd', 10)
+        self.subscription = self.create_subscription(Image, '/camera/image_raw', self.image_callback, 10)
 
-        # --- Optical Flow Vars ---
+        # 2. Tracking & State
         self.prev_gray = None
         self.prev_points = None
         self.accumulated_shift = 0.0
         
-        # --- Calibration (Adjust these!) ---
-        self.TURN_THRESHOLD = 600.0  # The "90 degree" pixel shift
-        self.ROW_TIME = 5.0          # Seconds to drive forward per row
+        # 3. Calibration (Tweak these!)
+        self.TURN_THRESHOLD = 580.0  # Pixel shift for a 90-degree turn
+        self.STRAIGHT_TIME = 4.0      # How many seconds to drive forward
+        self.SIDE_TIME = 1.5          # How many seconds to move to the next row
         
-        # --- State Machine ---
-        self.state = "DRIVE_FORWARD"
+        # 4. State Machine: DRIVE_FWD -> TURN_1 -> DRIVE_SIDE -> TURN_2 -> (Repeat)
+        self.states = ["DRIVE_FWD", "TURN_1", "DRIVE_SIDE", "TURN_2"]
+        self.current_state_idx = 0
         self.start_time = time.time()
-        self.turn_direction = 1 # 1 for Left, -1 for Right
+        self.turn_direction = "left" # Starts by turning left
+
+        self.get_logger().info("Snake Search Brain Started. Using Optical Flow for turns.")
 
     def image_callback(self, msg):
         frame = self.bridge.imgmsg_to_cv2(msg, "bgr8")
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        # 1. Optical Flow Processing
-        shift_in_this_frame = 0
-        if self.prev_gray is not None:
+        # OPTICAL FLOW MATH
+        if self.prev_gray is not None and self.prev_points is not None:
             new_points, status, _ = cv2.calcOpticalFlowPyrLK(self.prev_gray, gray, self.prev_points, None)
             if new_points is not None and status is not None:
                 good_new = new_points[status == 1]
                 good_old = self.prev_points[status == 1]
                 if len(good_new) > 10:
-                    shift_in_this_frame = np.mean(good_new[:, 0] - good_old[:, 0])
-                    self.accumulated_shift += shift_in_this_frame
+                    dx = np.mean(good_new[:, 0] - good_old[:, 0])
+                    # Only track shift if we are currently in a turning state
+                    if "TURN" in self.states[self.current_state_idx]:
+                        self.accumulated_shift += dx
 
-        # 2. State Machine Logic
-        self.run_snake_logic()
+        self.run_logic()
 
-        # 3. Cleanup & UI
+        # UI & Point Refresh
         self.prev_gray = gray.copy()
         self.prev_points = cv2.goodFeaturesToTrack(gray, maxCorners=100, qualityLevel=0.3, minDistance=7)
         
-        # Overlay info
-        cv2.putText(frame, f"State: {self.state}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        cv2.putText(frame, f"Shift: {int(self.accumulated_shift)}", (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-        cv2.imshow("Snake Search View", frame)
+        # Visual HUD
+        cv_state = self.states[self.current_state_idx]
+        cv2.putText(frame, f"TASK: {cv_state}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        cv2.putText(frame, f"SHIFT: {int(self.accumulated_shift)}", (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+        cv2.imshow("Snake Search Camera", frame)
         cv2.waitKey(1)
 
-    def run_snake_logic(self):
-        move = Twist()
+    def send_cmd(self, cmd_str):
+        msg = String()
+        msg.data = cmd_str
+        self.cmd_pub.publish(msg)
 
-        if self.state == "DRIVE_FORWARD":
-            if time.time() - self.start_time < self.ROW_TIME:
-                move.linear.x = 0.2
+    def run_logic(self):
+        state = self.states[self.current_state_idx]
+
+        if state == "DRIVE_FWD":
+            if time.time() - self.start_time < self.STRAIGHT_TIME:
+                self.send_cmd("forward")
             else:
-                self.state = "PREP_TURN"
-                self.accumulated_shift = 0.0
+                self.next_state()
 
-        elif self.state == "PREP_TURN":
-            # Small pause to stabilize before turning
-            self.state = "TURN_90"
-
-        elif self.state == "TURN_90":
-            # Rotate based on turn_direction
-            move.angular.z = 0.4 * self.turn_direction
-            
-            # CHECK OPTICAL FLOW THRESHOLD
+        elif state == "TURN_1" or state == "TURN_2":
+            self.send_cmd(self.turn_direction)
             if abs(self.accumulated_shift) >= self.TURN_THRESHOLD:
-                self.pub.publish(Twist()) # Stop
-                self.get_logger().info("90 Degree Turn Complete")
-                self.state = "DRIVE_FORWARD" # Or DRIVE_SIDE for a full lawnmower
-                self.start_time = time.time()
-                self.accumulated_shift = 0.0
-                # Reverse turn direction for next time? 
-                # self.turn_direction *= -1 
+                self.send_cmd("stop")
+                # If we just finished TURN_2, reverse the direction for the next row
+                if state == "TURN_2":
+                    self.turn_direction = "right" if self.turn_direction == "left" else "left"
+                self.next_state()
 
-        self.pub.publish(move)
+        elif state == "DRIVE_SIDE":
+            if time.time() - self.start_time < self.SIDE_TIME:
+                self.send_cmd("forward")
+            else:
+                self.next_state()
+
+    def next_state(self):
+        self.send_cmd("stop")
+        self.current_state_idx = (self.current_state_idx + 1) % len(self.states)
+        self.start_time = time.time()
+        self.accumulated_shift = 0.0
+        self.get_logger().info(f"Transitioning to: {self.states[self.current_state_idx]}")
 
 def main():
     rclpy.init()
-    node = SnakeSearchNode()
-    rclpy.spin(node)
+    node = SnakeSearchBrain()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
     rclpy.shutdown()
